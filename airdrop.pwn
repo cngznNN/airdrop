@@ -1,4 +1,7 @@
 #include <a_samp>
+#include <mapandreas>
+// Bu filterscript için MapAndreas zorunludur.
+
 
 #define FILTERSCRIPTS
 
@@ -6,6 +9,7 @@
 
 public OnFilterScriptInit()
 {
+	MapAndreas_Init(MAP_ANDREAS_MODE_FULL);
 	printf("Airdrop system successfully.");
 	return 1;
 }
@@ -18,8 +22,10 @@ public OnFilterScriptExit()
 #endif
 
 #define MAX_DROPS (10)
-#define COLOR_DROP (0) // Değeri 0'dan farklı yaparsanız girdiğiniz obje modelinde drop düşer. Örneğin: 19332.
+#define COLOR_DROP (0) // Değeri 0'dan farklı yaparsanız girdiğiniz obje modelinde drop düşer. Örneğin: 19332. Değer eğer 0 ise düşen drop her seferinde farklı renk olacaktır.
 #define DROP_SPEED (6.5) // Düşecek drop'un düşme hızıdır.
+#define DROP_INTERVAL (5) // Dakika cinsinden drop'un düştükten sonraki silinme zamanıdır.
+#define DROP_HEIGHT (500) // Drop'un random spawn bölgesinden düşeceği yüksekliktir.
 
 enum E_DROP {
 	dropID,
@@ -31,7 +37,8 @@ enum E_DROP {
 	dropSkin,
 	dropHealth,
 	dropArmor,
-	dropObject
+	dropObject,
+	dropRemove
 };
 
 new DropInfo[MAX_DROPS][E_DROP];
@@ -42,8 +49,11 @@ enum e_dropSpawn {
 	Float:dropZ
 };
 
-static const Float:g_arrDropSpawn[][e_dropSpawn] = {
-	{340.6458,-1486.5393,76.5391} // Random spawn olucak airdrop'ların X, Y, Z koordinatlarını girin.
+static const Float:g_arrDropSpawn[][e_dropSpawn] = { //Random spawn olucak airdrop'ların X, Y, Z koordinatlarını girin.
+	{340.6458,-1486.5393,76.5391},
+	{1241.2084, -2057.6521, 60.0190}, 
+	{718.4906, -1477.3024, 5.4688}, 
+	{722.3772, -1477.2856, 5.4688}
 };
 
 public OnPlayerCommandText(playerid, cmdtext[])
@@ -62,10 +72,11 @@ public OnPlayerCommandText(playerid, cmdtext[])
 				DropInfo[i][dropSkin] = random(312);
 				
 				new rand = random(sizeof(g_arrDropSpawn));
-				DropInfo[i][dropPos][0] = g_arrDropSpawn[rand][dropX];
-				DropInfo[i][dropPos][1] = g_arrDropSpawn[rand][dropY];
+				MapAndreas_FindZ_For2DCoord(g_arrDropSpawn[rand][dropX], g_arrDropSpawn[rand][dropY], g_arrDropSpawn[rand][dropZ]);
+				DropInfo[i][dropPos][0] = g_arrDropSpawn[rand][dropX] + random(20);
+				DropInfo[i][dropPos][1] = g_arrDropSpawn[rand][dropY] + random(20);
 				DropInfo[i][dropPos][2] = g_arrDropSpawn[rand][dropZ];
-				DropInfo[i][dropObject] = CreateObject(DropObject(), DropInfo[i][dropPos][0], DropInfo[i][dropPos][1], DropInfo[i][dropPos][2]+300, 0, 0, 0);
+				DropInfo[i][dropObject] = CreateObject(DropObject(), DropInfo[i][dropPos][0], DropInfo[i][dropPos][1], DropInfo[i][dropPos][2]+DROP_HEIGHT, 0, 0, 0);
 				MoveObject(DropInfo[i][dropObject], DropInfo[i][dropPos][0], DropInfo[i][dropPos][1], DropInfo[i][dropPos][2]-1, DROP_SPEED);
 			#else
 			#if (COLOR_DROP != 19332) && (COLOR_DROP != 19333) && (COLOR_DROP != 19334) && (COLOR_DROP != 19335) \
@@ -82,10 +93,11 @@ public OnPlayerCommandText(playerid, cmdtext[])
 				DropInfo[i][dropSkin] = random(312);
 				
 				new rand = random(sizeof(g_arrDropSpawn));
-				DropInfo[i][dropPos][0] = g_arrDropSpawn[rand][dropX];
-				DropInfo[i][dropPos][1] = g_arrDropSpawn[rand][dropY];
+				MapAndreas_FindZ_For2DCoord(g_arrDropSpawn[rand][dropX], g_arrDropSpawn[rand][dropY], g_arrDropSpawn[rand][dropZ]);
+				DropInfo[i][dropPos][0] = g_arrDropSpawn[rand][dropX] + random(20);
+				DropInfo[i][dropPos][1] = g_arrDropSpawn[rand][dropY] + random(20);
 				DropInfo[i][dropPos][2] = g_arrDropSpawn[rand][dropZ];
-				DropInfo[i][dropObject] = CreateObject(COLOR_DROP, DropInfo[i][dropPos][0], DropInfo[i][dropPos][1], DropInfo[i][dropPos][2]+300, 0, 0, 0);
+				DropInfo[i][dropObject] = CreateObject(COLOR_DROP, DropInfo[i][dropPos][0], DropInfo[i][dropPos][1], DropInfo[i][dropPos][2]+DROP_HEIGHT, 0, 0, 0);
 				MoveObject(DropInfo[i][dropObject], DropInfo[i][dropPos][0], DropInfo[i][dropPos][1], DropInfo[i][dropPos][2]-1, DROP_SPEED);
 			#endif
 			#endif
@@ -110,6 +122,32 @@ public OnPlayerCommandText(playerid, cmdtext[])
 		return 1;
 	}
 	return 0;
+}
+
+forward DropRemove(dropid);
+public DropRemove(dropid)
+{
+	if(!DropInfo[dropid][dropExists])
+		return 0;
+		
+	DropInfo[dropid][dropExists] = 0;
+	DropInfo[dropid][dropActive] = 0;
+	for(new i = 0; i < 5; i++) { DropInfo[dropid][dropWeapon][i] = 0; DropInfo[dropid][dropAmmo][i] = 0;}
+	
+	DropInfo[dropid][dropHealth] = 0;
+	DropInfo[dropid][dropArmor] = 0;
+	DropInfo[dropid][dropSkin] = -1;
+	
+	DropInfo[dropid][dropPos][0] = 0;
+	DropInfo[dropid][dropPos][1] = 0;
+	DropInfo[dropid][dropPos][2] = 0;
+	
+	DropInfo[dropid][dropRemove] = -1;
+	
+	if(IsValidObject(DropInfo[dropid][dropObject]))
+		DestroyObject(DropInfo[dropid][dropObject]);
+		
+	return 1;
 }
 
 public OnDialogResponse(playerid, dialogid, response, listitem, inputtext[])
@@ -204,7 +242,10 @@ public OnObjectMoved(objectid)
 	for(new i = 0; i < MAX_DROPS; i++)
 	{
 		if(objectid == DropInfo[i][dropObject])
+		{
+			DropInfo[i][dropRemove] = SetTimerEx("DropRemove", DROP_INTERVAL*60000, false, "d", i);
 			DropInfo[i][dropActive] = 1;
+		}
 	}
 	return 1;
 }
